@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: qiita-search
+    env: go
+    buildCommand: go build -o main
+    startCommand: ./main
+    envVars:
+      - key: CHATWORK_API_TOKEN
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_KEY
+        sync: false
+      - key: QIITA_ACCESS_TOKEN
+        sync: false 

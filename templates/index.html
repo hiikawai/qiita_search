@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Qiita記事検索</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .search-form {
+            margin-bottom: 20px;
+        }
+        .article {
+            border: 1px solid #ddd;
+            padding: 15px;
+            margin-bottom: 15px;
+            border-radius: 5px;
+        }
+        .article h2 {
+            margin-top: 0;
+        }
+        .article-meta {
+            color: #666;
+            font-size: 0.9em;
+        }
+        .summary {
+            background-color: #f5f5f5;
+            padding: 10px;
+            margin-top: 10px;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Qiita記事検索</h1>
+    
+    <form class="search-form" action="/" method="get">
+        <input type="text" name="q" value="{{.Query}}" placeholder="検索キーワード">
+        <button type="submit">検索</button>
+    </form>
+
+    {{if .Items}}
+        {{range .Items}}
+            <div class="article">
+                <h2><a href="{{.URL}}" target="_blank">{{.Title}}</a></h2>
+                <div class="article-meta">
+                    いいね数: {{.Likes}} | ストック数: {{.Stocks}} | 作成日: {{.CreatedAt}}
+                </div>
+                {{if .Summary}}
+                    <div class="summary">
+                        <h3>要約</h3>
+                        <p>{{.Summary}}</p>
+                    </div>
+                {{end}}
+            </div>
+        {{end}}
+    {{else}}
+        <p>記事が見つかりませんでした。</p>
+    {{end}}
+</body>
+</html> 

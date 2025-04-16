@@ -1,0 +1,17 @@
+# Environment variables and secrets
+.env
+.env.*
+*.env
+secrets.json
+credentials.json
+config.json
+
+# API keys and tokens
+*_key
+*_token
+*_secret
+*_password
+
+# Local development
+.DS_Store
+Thumbs.db 

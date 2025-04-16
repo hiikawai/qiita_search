@@ -1,0 +1,513 @@
+package controllers
+
+import (
+	"encoding/json"
+	"fmt"
+	"io"
+	"math/rand"
+	"net/http"
+	"net/url"
+	"os"
+	"qiita-search/models"
+	"strings"
+	"time"
+
+	"github.com/labstack/echo/v4"
+)
+
+type ArticleController struct{}
+
+func NewArticleController() *ArticleController {
+	rand.Seed(time.Now().UnixNano())
+	return &ArticleController{}
+}
+
+func (ac *ArticleController) Index(c echo.Context) error {
+	supabaseURL := os.Getenv("SUPABASE_URL")
+	supabaseKey := os.Getenv("SUPABASE_KEY")
+	chatworkToken := os.Getenv("CHATWORK_API_TOKEN")
+
+	userReq, err := http.NewRequest("GET", supabaseURL+"/rest/v1/user?select=room_id", nil)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"message": "ユーザー情報の取得に失敗しました",
+		})
+	}
+	userReq.Header.Set("apikey", supabaseKey)
+	userReq.Header.Set("Authorization", "Bearer "+supabaseKey)
+	userReq.Header.Set("Content-Type", "application/json")
+
+	userResp, err := http.DefaultClient.Do(userReq)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"message": "ユーザー情報の取得に失敗しました",
+		})
+	}
+	defer userResp.Body.Close()
+
+	userBody, err := io.ReadAll(userResp.Body)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"message": "ユーザー情報の取得に失敗しました",
+		})
+	}
+
+	var users []struct {
+		RoomID string `json:"room_id"`
+	}
+	if err := json.Unmarshal(userBody, &users); err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"message": "ユーザー情報の解析に失敗しました",
+		})
+	}
+
+	if len(users) == 0 {
+		return c.JSON(http.StatusOK, map[string]interface{}{"message": "登録されているユーザーがいません"})
+	}
+
+	fieldReq, err := http.NewRequest("GET", supabaseURL+"/rest/v1/field?select=room_id,field_name,priority", nil)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"message": "分野情報の取得に失敗しました",
+		})
+	}
+	fieldReq.Header.Set("apikey", supabaseKey)
+	fieldReq.Header.Set("Authorization", "Bearer "+supabaseKey)
+	fieldReq.Header.Set("Content-Type", "application/json")
+
+	fieldResp, err := http.DefaultClient.Do(fieldReq)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"message": "分野情報の取得に失敗しました",
+		})
+	}
+	defer fieldResp.Body.Close()
+
+	fieldBody, err := io.ReadAll(fieldResp.Body)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"message": "分野情報の取得に失敗しました",
+		})
+	}
+
+	var fields []struct {
+		RoomID    string `json:"room_id"`
+		FieldName string `json:"field_name"`
+		Priority  int    `json:"priority"`
+	}
+	if err := json.Unmarshal(fieldBody, &fields); err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"message": "分野情報の解析に失敗しました",
+		})
+	}
+
+	// ルームIDごとに分野と優先度をマッピング
+	type FieldInfo struct {
+		Name     string
+		Priority int
+	}
+	roomFields := make(map[string][]FieldInfo)
+	for _, field := range fields {
+		roomFields[field.RoomID] = append(roomFields[field.RoomID], FieldInfo{
+			Name:     field.FieldName,
+			Priority: field.Priority,
+		})
+	}
+
+	for _, user := range users {
+		if user.RoomID == "" {
+			continue
+		}
+
+		fieldInfos, hasFields := roomFields[user.RoomID]
+		var selectedField string
+		var apiURL string
+		var articles []models.Article
+
+		if hasFields && len(fieldInfos) > 0 {
+			// 優先度に基づく重み付け合計を計算
+			totalWeight := 0
+			for _, field := range fieldInfos {
+				totalWeight += field.Priority
+			}
+
+			// 重み付けランダム選択
+			randomNum := rand.Intn(totalWeight)
+			currentWeight := 0
+			for _, field := range fieldInfos {
+				currentWeight += field.Priority
+				if randomNum < currentWeight {
+					selectedField = field.Name
+					break
+				}
+			}
+
+			foundNewArticle := false
+
+			for page := 1; page <= 4; page++ {
+				apiURL = fmt.Sprintf("https://qiita.com/api/v2/items?per_page=30&page=%d&query=stocks:>=30+tag:%s", page, url.QueryEscape(selectedField))
+				articles, err = ac.searchArticles(apiURL)
+				if err != nil {
+					continue
+				}
+
+				if len(articles) == 0 {
+					break
+				}
+
+				for _, article := range articles {
+					historyReq, err := http.NewRequest("GET",
+						fmt.Sprintf("%s/rest/v1/article_history?article_url=eq.%s&room_id=eq.%s",
+							supabaseURL,
+							url.QueryEscape(article.URL),
+							url.QueryEscape(user.RoomID)),
+						nil)
+					if err != nil {
+						continue
+					}
+
+					historyReq.Header.Set("apikey", supabaseKey)
+					historyReq.Header.Set("Authorization", "Bearer "+supabaseKey)
+					historyReq.Header.Set("Content-Type", "application/json")
+
+					historyResp, err := http.DefaultClient.Do(historyReq)
+					if err != nil {
+						continue
+					}
+					defer historyResp.Body.Close()
+
+					var history []struct{}
+					if err := json.NewDecoder(historyResp.Body).Decode(&history); err != nil {
+						continue
+					}
+
+					if len(history) == 0 {
+						foundNewArticle = true
+						articles = []models.Article{article}
+						break
+					}
+				}
+
+				if foundNewArticle {
+					break
+				}
+			}
+
+			if !foundNewArticle {
+				for page := 1; page <= 4; page++ {
+					apiURL = fmt.Sprintf("https://qiita.com/api/v2/items?per_page=30&page=%d&query=stocks:>=30+title:%s", page, url.QueryEscape(selectedField))
+					articles, err = ac.searchArticles(apiURL)
+					if err != nil {
+						continue
+					}
+
+					if len(articles) == 0 {
+						break
+					}
+
+					for _, article := range articles {
+						historyReq, err := http.NewRequest("GET",
+							fmt.Sprintf("%s/rest/v1/article_history?article_url=eq.%s&room_id=eq.%s",
+								supabaseURL,
+								url.QueryEscape(article.URL),
+								url.QueryEscape(user.RoomID)),
+							nil)
+						if err != nil {
+							continue
+						}
+
+						historyReq.Header.Set("apikey", supabaseKey)
+						historyReq.Header.Set("Authorization", "Bearer "+supabaseKey)
+						historyReq.Header.Set("Content-Type", "application/json")
+
+						historyResp, err := http.DefaultClient.Do(historyReq)
+						if err != nil {
+							continue
+						}
+						defer historyResp.Body.Close()
+
+						var history []struct{}
+						if err := json.NewDecoder(historyResp.Body).Decode(&history); err != nil {
+							continue
+						}
+
+						if len(history) == 0 {
+							foundNewArticle = true
+							articles = []models.Article{article}
+							break
+						}
+					}
+
+					if foundNewArticle {
+						break
+					}
+				}
+			}
+
+			if !foundNewArticle {
+				deleteReq, err := http.NewRequest("DELETE",
+					fmt.Sprintf("%s/rest/v1/field?room_id=eq.%s&field_name=eq.%s",
+						supabaseURL,
+						url.QueryEscape(user.RoomID),
+						url.QueryEscape(selectedField)),
+					nil)
+				if err != nil {
+					continue
+				}
+
+				deleteReq.Header.Set("apikey", supabaseKey)
+				deleteReq.Header.Set("Authorization", "Bearer "+supabaseKey)
+
+				deleteResp, err := http.DefaultClient.Do(deleteReq)
+				if err != nil {
+					continue
+				}
+				defer deleteResp.Body.Close()
+
+				hasFields = false
+
+				foundNewArticle := false
+				for page := 1; page <= 4; page++ {
+					apiURL = fmt.Sprintf("https://qiita.com/api/v2/items?per_page=30&page=%d&query=stocks:>=30", page)
+					articles, err = ac.searchArticles(apiURL)
+					if err != nil {
+						continue
+					}
+
+					if len(articles) == 0 {
+						break
+					}
+
+					for _, article := range articles {
+						historyReq, err := http.NewRequest("GET",
+							fmt.Sprintf("%s/rest/v1/article_history?article_url=eq.%s&room_id=eq.%s",
+								supabaseURL,
+								url.QueryEscape(article.URL),
+								url.QueryEscape(user.RoomID)),
+							nil)
+						if err != nil {
+							continue
+						}
+
+						historyReq.Header.Set("apikey", supabaseKey)
+						historyReq.Header.Set("Authorization", "Bearer "+supabaseKey)
+						historyReq.Header.Set("Content-Type", "application/json")
+
+						historyResp, err := http.DefaultClient.Do(historyReq)
+						if err != nil {
+							continue
+						}
+						defer historyResp.Body.Close()
+
+						var history []struct{}
+						if err := json.NewDecoder(historyResp.Body).Decode(&history); err != nil {
+							continue
+						}
+
+						if len(history) == 0 {
+							foundNewArticle = true
+							articles = []models.Article{article}
+							break
+						}
+					}
+
+					if foundNewArticle {
+						break
+					}
+				}
+
+				if !foundNewArticle {
+					continue
+				}
+			}
+		} else {
+			foundNewArticle := false
+			for page := 1; page <= 4; page++ {
+				apiURL = fmt.Sprintf("https://qiita.com/api/v2/items?per_page=30&page=%d&query=stocks:>=30", page)
+				articles, err = ac.searchArticles(apiURL)
+				if err != nil {
+					continue
+				}
+
+				if len(articles) == 0 {
+					break
+				}
+
+				for _, article := range articles {
+					historyReq, err := http.NewRequest("GET",
+						fmt.Sprintf("%s/rest/v1/article_history?article_url=eq.%s&room_id=eq.%s",
+							supabaseURL,
+							url.QueryEscape(article.URL),
+							url.QueryEscape(user.RoomID)),
+						nil)
+					if err != nil {
+						continue
+					}
+
+					historyReq.Header.Set("apikey", supabaseKey)
+					historyReq.Header.Set("Authorization", "Bearer "+supabaseKey)
+					historyReq.Header.Set("Content-Type", "application/json")
+
+					historyResp, err := http.DefaultClient.Do(historyReq)
+					if err != nil {
+						continue
+					}
+					defer historyResp.Body.Close()
+
+					var history []struct{}
+					if err := json.NewDecoder(historyResp.Body).Decode(&history); err != nil {
+						continue
+					}
+
+					if len(history) == 0 {
+						foundNewArticle = true
+						articles = []models.Article{article}
+						break
+					}
+				}
+
+				if foundNewArticle {
+					break
+				}
+			}
+
+			if !foundNewArticle {
+				continue
+			}
+		}
+
+		if len(articles) == 0 {
+			continue
+		}
+
+		if err := articles[0].Summarize(); err != nil {
+			continue
+		}
+
+		tags := make([]string, len(articles[0].Tags))
+		for i, tag := range articles[0].Tags {
+			tags[i] = tag.Name
+		}
+		tagMessage := ""
+		if len(tags) > 0 {
+			tagMessage = "\nタグ: " + strings.Join(tags, ", ")
+		}
+
+		message := "本日の記事"
+		if hasFields && len(fieldInfos) > 0 {
+			message = fmt.Sprintf("分野「%s」の記事", selectedField)
+		}
+
+		chatworkMessage := fmt.Sprintf("[info][title]%s[/title]%s\n%s\n\n%s%s[/info]後で見返したい場合：:)と送信",
+			message,
+			articles[0].Title,
+			articles[0].URL,
+			articles[0].Summary,
+			tagMessage)
+
+		chatworkURL := fmt.Sprintf("https://api.chatwork.com/v2/rooms/%s/messages", user.RoomID)
+
+		formData := url.Values{}
+		formData.Set("body", chatworkMessage)
+
+		chatworkReq, err := http.NewRequest("POST", chatworkURL, strings.NewReader(formData.Encode()))
+		if err != nil {
+			continue
+		}
+		chatworkReq.Header.Set("X-ChatWorkToken", chatworkToken)
+		chatworkReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+		chatworkResp, err := http.DefaultClient.Do(chatworkReq)
+		if err != nil {
+			continue
+		}
+		defer chatworkResp.Body.Close()
+
+		historyData := map[string]interface{}{
+			"article_url": articles[0].URL,
+			"room_id":     user.RoomID,
+		}
+		historyJSON, err := json.Marshal(historyData)
+		if err != nil {
+			continue
+		}
+
+		historyPostReq, err := http.NewRequest("POST",
+			supabaseURL+"/rest/v1/article_history",
+			strings.NewReader(string(historyJSON)))
+		if err != nil {
+			continue
+		}
+
+		historyPostReq.Header.Set("apikey", supabaseKey)
+		historyPostReq.Header.Set("Authorization", "Bearer "+supabaseKey)
+		historyPostReq.Header.Set("Content-Type", "application/json")
+
+		historyPostResp, err := http.DefaultClient.Do(historyPostReq)
+		if err != nil {
+			continue
+		}
+		defer historyPostResp.Body.Close()
+	}
+
+	return c.String(http.StatusOK, "処理が完了しました")
+}
+
+// 記事検索用のヘルパー関数
+func (ac *ArticleController) searchArticles(apiURL string) ([]models.Article, error) {
+	if apiURL == "" {
+		return nil, fmt.Errorf("API URLが指定されていません")
+	}
+
+	client := &http.Client{}
+	req, err := http.NewRequest("GET", apiURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("リクエストの作成に失敗しました: %v", err)
+	}
+
+	// Qiitaのアクセストークンを設定
+	qiitaToken := os.Getenv("QIITA_ACCESS_TOKEN")
+	if qiitaToken == "" {
+		return nil, fmt.Errorf("QIITA_ACCESS_TOKENが設定されていません")
+	}
+	req.Header.Set("Authorization", "Bearer "+qiitaToken)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("APIリクエストに失敗しました: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// レスポンスボディを読み込む
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("レスポンスの読み込みに失敗しました: %v", err)
+	}
+
+	// レート制限エラーのチェック
+	var rateLimitError struct {
+		Message string `json:"message"`
+		Type    string `json:"type"`
+	}
+	if err := json.Unmarshal(body, &rateLimitError); err == nil && rateLimitError.Type == "rate_limit_exceeded" {
+		return nil, fmt.Errorf("Qiita APIのレート制限に達しました: %s", rateLimitError.Message)
+	}
+
+	// レスポンスが空の配列かどうかをチェック
+	if string(body) == "[]" {
+		return []models.Article{}, nil
+	}
+
+	// レスポンスが配列かオブジェクトかを判定
+	var articles []models.Article
+	if err := json.Unmarshal(body, &articles); err != nil {
+		// 配列として解析できなかった場合、単一の記事として解析を試みる
+		var article models.Article
+		if err := json.Unmarshal(body, &article); err != nil {
+			return nil, fmt.Errorf("レスポンスの解析に失敗しました: %v", err)
+		}
+		articles = []models.Article{article}
+	}
+
+	return articles, nil
+}
