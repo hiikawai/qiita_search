@@ -12,8 +12,8 @@ import (
 )
 
 func main() {
-	// .envファイルを読み込む（開発環境用）
-	if os.Getenv("ENV") != "production" {
+	// 開発環境でのみ.envを読み込む
+	if os.Getenv("GO_ENV") == "development" {
 		if err := godotenv.Load(); err != nil {
 			log.Fatal("Error loading .env file")
 		}
