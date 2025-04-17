@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -434,17 +435,18 @@ func (ac *ArticleController) Index(c echo.Context) error {
 			message = fmt.Sprintf("「%s」の記事", selectedField)
 		}
 
-		chatworkMessage := fmt.Sprintf("[info][title]%s[/title]%s\n%s\n\n%s%s[/info]後で見返したい場合：:)と送信",
+		// 最初のメッセージを送信
+		initialMessage := fmt.Sprintf("[info][title]%s[/title]%s\n%s\n\n%s%s[/info]",
 			message,
 			articles[0].Title,
 			articles[0].URL,
 			articles[0].Summary,
 			tagMessage)
 
-		chatworkURL := fmt.Sprintf("https://api.chatwork.com/v2/rooms/%s/messages", user.RoomID)
-
 		formData := url.Values{}
-		formData.Set("body", chatworkMessage)
+		formData.Set("body", initialMessage)
+
+		chatworkURL := fmt.Sprintf("https://api.chatwork.com/v2/rooms/%s/messages", user.RoomID)
 
 		chatworkReq, err := http.NewRequest("POST", chatworkURL, strings.NewReader(formData.Encode()))
 		if err != nil {
@@ -454,6 +456,35 @@ func (ac *ArticleController) Index(c echo.Context) error {
 		chatworkReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
 		chatworkResp, err := http.DefaultClient.Do(chatworkReq)
+		if err != nil {
+			continue
+		}
+		defer chatworkResp.Body.Close()
+
+		// レスポンスからメッセージIDを取得
+		var messageResponse struct {
+			MessageID string `json:"message_id"`
+		}
+		if err := json.NewDecoder(chatworkResp.Body).Decode(&messageResponse); err != nil {
+			continue
+		}
+
+		// 保存リンクを含むメッセージを送信
+		saveLinkMessage := fmt.Sprintf("保存する場合は以下のリンクをクリック:\nhttp://localhost:8080/save?room_id=%s&message_id=%s",
+			url.QueryEscape(user.RoomID),
+			url.QueryEscape(messageResponse.MessageID))
+
+		formData = url.Values{}
+		formData.Set("body", saveLinkMessage)
+
+		chatworkReq, err = http.NewRequest("POST", chatworkURL, strings.NewReader(formData.Encode()))
+		if err != nil {
+			continue
+		}
+		chatworkReq.Header.Set("X-ChatWorkToken", chatworkToken)
+		chatworkReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+		chatworkResp, err = http.DefaultClient.Do(chatworkReq)
 		if err != nil {
 			continue
 		}
@@ -546,4 +577,87 @@ func (ac *ArticleController) searchArticles(apiURL string) ([]models.Article, er
 	}
 
 	return articles, nil
+}
+
+// SaveArticle は記事を保存するハンドラー
+func (ac *ArticleController) SaveArticle(c echo.Context) error {
+	// パラメータの取得
+	roomID := c.QueryParam("room_id")
+	messageID := c.QueryParam("message_id")
+
+	// Chatworkの設定を取得
+	chatworkToken := os.Getenv("CHATWORK_API_TOKEN")
+	if chatworkToken == "" {
+		return c.String(http.StatusInternalServerError, "CHATWORK_API_TOKENが設定されていません")
+	}
+
+	// Chatworkからメッセージを取得
+	client := &http.Client{}
+	req, err := http.NewRequest("GET", fmt.Sprintf("https://api.chatwork.com/v2/rooms/%s/messages/%s", roomID, messageID), nil)
+	if err != nil {
+		return c.String(http.StatusInternalServerError, "リクエストの作成に失敗しました")
+	}
+
+	req.Header.Set("X-ChatWorkToken", chatworkToken)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return c.String(http.StatusInternalServerError, "メッセージの取得に失敗しました")
+	}
+	defer resp.Body.Close()
+
+	// レスポンスを解析
+	var message struct {
+		Body string `json:"body"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&message); err != nil {
+		return c.String(http.StatusInternalServerError, "メッセージの解析に失敗しました")
+	}
+
+	// Supabaseの設定を取得
+	supabaseURL := os.Getenv("SUPABASE_URL")
+	supabaseKey := os.Getenv("SUPABASE_KEY")
+
+	// reserve_articleテーブルに保存
+	articleData := map[string]interface{}{
+		"room_id": roomID,
+		"content": message.Body,
+	}
+	articleJSON, err := json.Marshal(articleData)
+	if err != nil {
+		return c.String(http.StatusInternalServerError, "データの作成に失敗しました")
+	}
+
+	articleReq, err := http.NewRequest("POST", supabaseURL+"/rest/v1/reserve_article", bytes.NewBuffer(articleJSON))
+	if err != nil {
+		return c.String(http.StatusInternalServerError, "リクエストの作成に失敗しました")
+	}
+
+	articleReq.Header.Set("apikey", supabaseKey)
+	articleReq.Header.Set("Authorization", "Bearer "+supabaseKey)
+	articleReq.Header.Set("Content-Type", "application/json")
+	articleReq.Header.Set("Prefer", "return=minimal")
+
+	articleResp, err := client.Do(articleReq)
+	if err != nil {
+		return c.String(http.StatusInternalServerError, "保存に失敗しました")
+	}
+	defer articleResp.Body.Close()
+
+	if articleResp.StatusCode == http.StatusCreated {
+		return c.HTML(http.StatusOK, `
+			<html>
+				<head>
+					<title>保存完了</title>
+					<meta charset="utf-8">
+				</head>
+				<body>
+					<h1>記事を保存しました</h1>
+					<p>このページは閉じて構いません。</p>
+				</body>
+			</html>
+		`)
+	}
+
+	return c.String(http.StatusInternalServerError, "記事の保存に失敗しました")
 }
