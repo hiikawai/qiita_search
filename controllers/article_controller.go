@@ -590,6 +590,8 @@ func (ac *ArticleController) SaveArticle(c echo.Context) error {
 	roomID := c.QueryParam("room_id")
 	messageID := c.QueryParam("message_id")
 
+	fmt.Printf("SaveArticle: room_id=%s, message_id=%s\n", roomID, messageID)
+
 	// Chatworkの設定を取得
 	chatworkToken := os.Getenv("CHATWORK_API_TOKEN")
 	if chatworkToken == "" {
@@ -610,6 +612,8 @@ func (ac *ArticleController) SaveArticle(c echo.Context) error {
 		return c.String(http.StatusInternalServerError, "メッセージの取得に失敗しました")
 	}
 	defer resp.Body.Close()
+
+	fmt.Printf("Chatwork API response: %d\n", resp.StatusCode)
 
 	// レスポンスを解析
 	var message struct {
@@ -648,6 +652,8 @@ func (ac *ArticleController) SaveArticle(c echo.Context) error {
 		return c.String(http.StatusInternalServerError, "保存に失敗しました")
 	}
 	defer articleResp.Body.Close()
+
+	fmt.Printf("Supabase response: %d\n", articleResp.StatusCode)
 
 	if articleResp.StatusCode == http.StatusCreated {
 		return c.HTML(http.StatusOK, `
