@@ -49,7 +49,7 @@ func (a *Article) Summarize() error {
 	defer client.Close()
 
 	model := client.GenerativeModel("gemini-1.5-flash")
-	prompt := fmt.Sprintf("以下の記事を日本語の箇条書きで80字以内で読みたくなるように要約してください。：\n\n%s", a.Body)
+	prompt := fmt.Sprintf("以下の記事を日本語の箇条書きで80字以内で読みたくなるように要約して（箇条の部分以外で*を使わないで）：\n\n%s", a.Body)
 
 	resp, err := model.GenerateContent(ctx, genai.Text(prompt))
 	if err != nil {
