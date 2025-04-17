@@ -145,7 +145,27 @@ func (ac *ArticleController) Index(c echo.Context) error {
 			foundNewArticle := false
 
 			for page := 1; page <= 4; page++ {
-				apiURL = fmt.Sprintf("https://qiita.com/api/v2/items?per_page=30&page=%d&query=stocks:>=30+tag:%s", page, url.QueryEscape(selectedField))
+				// 単語を分割
+				searchWords := strings.Fields(selectedField)
+
+				if len(searchWords) > 1 {
+					// 複数単語の場合（例：cursor rules）
+					// すべてのタグを含む記事を検索（AND検索）
+					tagQueries := make([]string, len(searchWords))
+					for i, word := range searchWords {
+						tagQueries[i] = fmt.Sprintf("tag:%s", url.QueryEscape(word))
+					}
+					apiURL = fmt.Sprintf("https://qiita.com/api/v2/items?per_page=30&page=%d&query=stocks:>=30+%s",
+						page,
+						strings.Join(tagQueries, "+")) // + はAND条件
+
+				} else {
+					// 単一単語の場合（既存の検索方法）
+					apiURL = fmt.Sprintf("https://qiita.com/api/v2/items?per_page=30&page=%d&query=stocks:>=30+tag:%s",
+						page,
+						url.QueryEscape(selectedField))
+				}
+
 				articles, err = ac.searchArticles(apiURL)
 				if err != nil {
 					continue
@@ -155,6 +175,7 @@ func (ac *ArticleController) Index(c echo.Context) error {
 					break
 				}
 
+				// 履歴チェックと記事の保存
 				for _, article := range articles {
 					historyReq, err := http.NewRequest("GET",
 						fmt.Sprintf("%s/rest/v1/article_history?article_url=eq.%s&room_id=eq.%s",
@@ -195,7 +216,22 @@ func (ac *ArticleController) Index(c echo.Context) error {
 
 			if !foundNewArticle {
 				for page := 1; page <= 4; page++ {
-					apiURL = fmt.Sprintf("https://qiita.com/api/v2/items?per_page=30&page=%d&query=stocks:>=30+title:%s", page, url.QueryEscape(selectedField))
+					// 単語を分割
+					searchWords := strings.Fields(selectedField)
+					var apiURL string
+					if len(searchWords) > 1 {
+						titleQueries := make([]string, len(searchWords))
+						for i, word := range searchWords {
+							titleQueries[i] = fmt.Sprintf("title:%s", url.QueryEscape(word))
+						}
+						apiURL = fmt.Sprintf("https://qiita.com/api/v2/items?per_page=30&page=%d&query=stocks:>=30+%s",
+							page,
+							strings.Join(titleQueries, "+"))
+					} else {
+						apiURL = fmt.Sprintf("https://qiita.com/api/v2/items?per_page=30&page=%d&query=stocks:>=30+title:%s",
+							page,
+							url.QueryEscape(selectedField))
+					}
 					articles, err = ac.searchArticles(apiURL)
 					if err != nil {
 						continue
@@ -395,7 +431,7 @@ func (ac *ArticleController) Index(c echo.Context) error {
 
 		message := "本日の記事"
 		if hasFields && len(fieldInfos) > 0 {
-			message = fmt.Sprintf("分野「%s」の記事", selectedField)
+			message = fmt.Sprintf("「%s」の記事", selectedField)
 		}
 
 		chatworkMessage := fmt.Sprintf("[info][title]%s[/title]%s\n%s\n\n%s%s[/info]後で見返したい場合：:)と送信",
