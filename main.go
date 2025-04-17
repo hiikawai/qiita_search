@@ -12,12 +12,33 @@ import (
 )
 
 func main() {
-	// 開発環境でのみ.envを読み込む
-	if os.Getenv("GO_ENV") == "development" {
-		if err := godotenv.Load(); err != nil {
-			log.Fatal("Error loading .env file")
-		}
+	// カレントディレクトリを表示
+	dir, err := os.Getwd()
+	if err != nil {
+		log.Printf("Error getting current directory: %v", err)
 	}
+	log.Printf("Current directory: %s", dir)
+
+	// .envファイルの存在確認
+	if _, err := os.Stat(".env"); err != nil {
+		log.Printf(".env file not found in current directory: %v", err)
+	} else {
+		log.Printf(".env file found in current directory")
+	}
+
+	// .envファイルを読み込む
+	if err := godotenv.Load(); err != nil {
+		log.Printf("Error loading .env file: %v", err)
+	} else {
+		log.Printf("Successfully loaded .env file")
+	}
+
+	// 環境変数の確認
+	log.Printf("Environment variables:")
+	log.Printf("GO_ENV: %s", os.Getenv("GO_ENV"))
+	log.Printf("SUPABASE_URL: %s", os.Getenv("SUPABASE_URL"))
+	log.Printf("SUPABASE_KEY exists: %v", os.Getenv("SUPABASE_KEY") != "")
+	log.Printf("CHATWORK_TOKEN exists: %v", os.Getenv("CHATWORK_API_TOKEN") != "")
 
 	e := echo.New()
 
