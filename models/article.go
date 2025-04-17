@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/google/generative-ai-go/genai"
 	"google.golang.org/api/option"
@@ -57,7 +58,11 @@ func (a *Article) Summarize() error {
 	}
 
 	if len(resp.Candidates) > 0 && len(resp.Candidates[0].Content.Parts) > 0 {
-		a.Summary = fmt.Sprintf("%v", resp.Candidates[0].Content.Parts[0])
+		summary := fmt.Sprintf("%v", resp.Candidates[0].Content.Parts[0])
+
+		summary = strings.ReplaceAll(summary, ":*", "")
+
+		a.Summary = summary
 	} else {
 		return fmt.Errorf("no content generated")
 	}
