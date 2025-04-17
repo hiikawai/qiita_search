@@ -590,12 +590,9 @@ func (ac *ArticleController) SaveArticle(c echo.Context) error {
 	roomID := c.QueryParam("room_id")
 	messageID := c.QueryParam("message_id")
 
-	fmt.Printf("SaveArticle: room_id=%s, message_id=%s\n", roomID, messageID)
-
 	// Chatworkの設定を取得
 	chatworkToken := os.Getenv("CHATWORK_API_TOKEN")
 	if chatworkToken == "" {
-		fmt.Println("Error: CHATWORK_API_TOKEN is not set")
 		return c.String(http.StatusInternalServerError, "CHATWORK_API_TOKENが設定されていません")
 	}
 
@@ -603,7 +600,6 @@ func (ac *ArticleController) SaveArticle(c echo.Context) error {
 	client := &http.Client{}
 	req, err := http.NewRequest("GET", fmt.Sprintf("https://api.chatwork.com/v2/rooms/%s/messages/%s", roomID, messageID), nil)
 	if err != nil {
-		fmt.Printf("Error creating request: %v\n", err)
 		return c.String(http.StatusInternalServerError, "リクエストの作成に失敗しました")
 	}
 
@@ -611,16 +607,11 @@ func (ac *ArticleController) SaveArticle(c echo.Context) error {
 
 	resp, err := client.Do(req)
 	if err != nil {
-		fmt.Printf("Error getting message: %v\n", err)
 		return c.String(http.StatusInternalServerError, "メッセージの取得に失敗しました")
 	}
 	defer resp.Body.Close()
 
-	fmt.Printf("Chatwork API response: %d\n", resp.StatusCode)
-
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		fmt.Printf("Chatwork API error response: %s\n", string(body))
 		return c.String(http.StatusInternalServerError, "Chatwork APIからのレスポンスが不正です")
 	}
 
@@ -629,7 +620,6 @@ func (ac *ArticleController) SaveArticle(c echo.Context) error {
 		Body string `json:"body"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&message); err != nil {
-		fmt.Printf("Error parsing message: %v\n", err)
 		return c.String(http.StatusInternalServerError, "メッセージの解析に失敗しました")
 	}
 
@@ -638,8 +628,48 @@ func (ac *ArticleController) SaveArticle(c echo.Context) error {
 	supabaseKey := os.Getenv("SUPABASE_KEY")
 
 	if supabaseURL == "" || supabaseKey == "" {
-		fmt.Println("Error: Supabase credentials are not set")
 		return c.String(http.StatusInternalServerError, "Supabaseの設定が完了していません")
+	}
+
+	// 既存の記事をチェック
+	checkReq, err := http.NewRequest("GET",
+		fmt.Sprintf("%s/rest/v1/reserve_article?room_id=eq.%s&content=eq.%s",
+			supabaseURL,
+			url.QueryEscape(roomID),
+			url.QueryEscape(message.Body)),
+		nil)
+	if err != nil {
+		return c.String(http.StatusInternalServerError, "チェックリクエストの作成に失敗しました")
+	}
+
+	checkReq.Header.Set("apikey", supabaseKey)
+	checkReq.Header.Set("Authorization", "Bearer "+supabaseKey)
+
+	checkResp, err := client.Do(checkReq)
+	if err != nil {
+		return c.String(http.StatusInternalServerError, "記事のチェックに失敗しました")
+	}
+	defer checkResp.Body.Close()
+
+	var existingArticles []map[string]interface{}
+	if err := json.NewDecoder(checkResp.Body).Decode(&existingArticles); err != nil {
+		return c.String(http.StatusInternalServerError, "チェックレスポンスの解析に失敗しました")
+	}
+
+	// 既に保存されている場合は成功として扱う
+	if len(existingArticles) > 0 {
+		return c.HTML(http.StatusOK, `
+			<html>
+				<head>
+					<title>保存完了</title>
+					<meta charset="utf-8">
+				</head>
+				<body>
+					<h1>記事は既に保存されています</h1>
+					<p>このページは閉じて構いません。</p>
+				</body>
+			</html>
+		`)
 	}
 
 	// reserve_articleテーブルに保存
@@ -649,13 +679,11 @@ func (ac *ArticleController) SaveArticle(c echo.Context) error {
 	}
 	articleJSON, err := json.Marshal(articleData)
 	if err != nil {
-		fmt.Printf("Error marshaling article data: %v\n", err)
 		return c.String(http.StatusInternalServerError, "データの作成に失敗しました")
 	}
 
 	articleReq, err := http.NewRequest("POST", supabaseURL+"/rest/v1/reserve_article", bytes.NewBuffer(articleJSON))
 	if err != nil {
-		fmt.Printf("Error creating Supabase request: %v\n", err)
 		return c.String(http.StatusInternalServerError, "リクエストの作成に失敗しました")
 	}
 
@@ -666,16 +694,11 @@ func (ac *ArticleController) SaveArticle(c echo.Context) error {
 
 	articleResp, err := client.Do(articleReq)
 	if err != nil {
-		fmt.Printf("Error saving to Supabase: %v\n", err)
 		return c.String(http.StatusInternalServerError, "保存に失敗しました")
 	}
 	defer articleResp.Body.Close()
 
-	fmt.Printf("Supabase response: %d\n", articleResp.StatusCode)
-
 	if articleResp.StatusCode != http.StatusCreated {
-		body, _ := io.ReadAll(articleResp.Body)
-		fmt.Printf("Supabase error response: %s\n", string(body))
 		return c.String(http.StatusInternalServerError, "Supabaseへの保存に失敗しました")
 	}
 
