@@ -153,6 +153,117 @@ func (uc *UserController) Index(c echo.Context) error {
 				// メッセージを追加
 				message["room_id"] = roomID
 				allMessages = append(allMessages, message)
+
+				// 分野登録機能
+				// カンマや句読点で区切られたワードを分割
+				words := strings.FieldsFunc(body, func(r rune) bool {
+					return r == ',' || r == '、'
+				})
+
+				// 各ワードに対して処理
+				for _, word := range words {
+					// 空白を削除
+					word = strings.TrimSpace(word)
+					if word == "" {
+						continue
+					}
+
+					// QiitaのAPIで検索
+					qiitaReq, err := http.NewRequest("GET",
+						fmt.Sprintf("https://qiita.com/api/v2/items?query=title:%s&per_page=1", word),
+						nil)
+					if err != nil {
+						continue
+					}
+
+					// Qiitaのアクセストークンを設定
+					qiitaToken := os.Getenv("QIITA_ACCESS_TOKEN")
+					if qiitaToken == "" {
+						continue
+					}
+					qiitaReq.Header.Set("Authorization", "Bearer "+qiitaToken)
+
+					qiitaResp, err := client.Do(qiitaReq)
+					if err != nil {
+						continue
+					}
+					defer qiitaResp.Body.Close()
+
+					// レスポンスの内容を確認
+					qiitaBody, err := io.ReadAll(qiitaResp.Body)
+					if err != nil {
+						continue
+					}
+
+					var qiitaItems []map[string]interface{}
+					if err := json.Unmarshal(qiitaBody, &qiitaItems); err != nil {
+						continue
+					}
+
+					if len(qiitaItems) == 0 {
+						continue
+					}
+
+					// 現在のroom_idのfield数を取得
+					fieldCountReq, err := http.NewRequest("GET",
+						fmt.Sprintf("%s/rest/v1/field?room_id=eq.%s&select=count", supabaseURL, roomID),
+						nil)
+					if err != nil {
+						continue
+					}
+
+					fieldCountReq.Header.Set("apikey", supabaseKey)
+					fieldCountReq.Header.Set("Authorization", "Bearer "+supabaseKey)
+					fieldCountReq.Header.Set("Content-Type", "application/json")
+
+					fieldCountResp, err := client.Do(fieldCountReq)
+					if err != nil {
+						continue
+					}
+					defer fieldCountResp.Body.Close()
+
+					var fieldCount []map[string]interface{}
+					if err := json.NewDecoder(fieldCountResp.Body).Decode(&fieldCount); err != nil {
+						continue
+					}
+
+					count, ok := fieldCount[0]["count"].(float64)
+					if !ok {
+						continue
+					}
+
+					// 20件以上の場合、登録をスキップ
+					if count >= 20 {
+						continue
+					}
+
+					// Supabaseのfieldテーブルにメッセージを追加
+					fieldData := map[string]interface{}{
+						"room_id":    roomID,
+						"field_name": word,
+						"priority":   3, // デフォルトの興味の強さを3（普通）に設定
+					}
+					fieldJSON, err := json.Marshal(fieldData)
+					if err != nil {
+						continue
+					}
+
+					fieldReq, err := http.NewRequest("POST", supabaseURL+"/rest/v1/field", bytes.NewBuffer(fieldJSON))
+					if err != nil {
+						continue
+					}
+
+					fieldReq.Header.Set("apikey", supabaseKey)
+					fieldReq.Header.Set("Authorization", "Bearer "+supabaseKey)
+					fieldReq.Header.Set("Content-Type", "application/json")
+					fieldReq.Header.Set("Prefer", "return=minimal")
+
+					fieldResp, err := client.Do(fieldReq)
+					if err != nil {
+						continue
+					}
+					defer fieldResp.Body.Close()
+				}
 			}
 		}
 	}
