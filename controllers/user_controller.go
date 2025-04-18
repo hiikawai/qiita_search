@@ -161,6 +161,7 @@ func (uc *UserController) Index(c echo.Context) error {
 				})
 
 				// 各ワードに対して処理
+				var registeredWords []string
 				for _, word := range words {
 					// 空白を削除
 					word = strings.TrimSpace(word)
@@ -292,11 +293,18 @@ func (uc *UserController) Index(c echo.Context) error {
 					}
 					defer fieldResp.Body.Close()
 
-					// Chatworkに登録完了メッセージを送信
-					messageText := fmt.Sprintf("%s を登録しました", word)
+					// 登録成功したワードを記録
+					registeredWords = append(registeredWords, word)
+				}
+
+				// 登録成功したワードがある場合、まとめて通知
+				if len(registeredWords) > 0 {
+					messageText := fmt.Sprintf("%s を登録しました", strings.Join(registeredWords, "、"))
 					chatworkReq, err := http.NewRequest("POST", fmt.Sprintf("https://api.chatwork.com/v2/rooms/%s/messages", roomID), strings.NewReader(fmt.Sprintf("body=%s", messageText)))
 					if err != nil {
-						continue
+						return c.JSON(http.StatusInternalServerError, map[string]string{
+							"error": "メッセージ送信リクエストの作成に失敗しました",
+						})
 					}
 
 					chatworkReq.Header.Set("X-ChatWorkToken", chatworkToken)
@@ -304,7 +312,9 @@ func (uc *UserController) Index(c echo.Context) error {
 
 					_, err = client.Do(chatworkReq)
 					if err != nil {
-						continue
+						return c.JSON(http.StatusInternalServerError, map[string]string{
+							"error": "メッセージの送信に失敗しました",
+						})
 					}
 				}
 			}
