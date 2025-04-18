@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 
@@ -23,9 +24,20 @@ func (uc *UserController) Register(c echo.Context) error {
 	message := c.QueryParam("message")
 	roomID := c.QueryParam("room_id")
 
+	fmt.Printf("受信したメッセージ: %s\n", message)
+	fmt.Printf("受信したroom_id: %s\n", roomID)
+
 	if message == "" || roomID == "" {
 		return c.String(http.StatusBadRequest, "メッセージとルームIDは必須です")
 	}
+
+	// メッセージをURLデコード
+	decodedMessage, err := url.QueryUnescape(message)
+	if err != nil {
+		fmt.Printf("URLデコードエラー: %v\n", err)
+		return c.String(http.StatusBadRequest, "メッセージのデコードに失敗しました")
+	}
+	fmt.Printf("デコード後のメッセージ: %s\n", decodedMessage)
 
 	// Supabaseの設定を取得
 	supabaseURL := os.Getenv("SUPABASE_URL")
@@ -44,9 +56,10 @@ func (uc *UserController) Register(c echo.Context) error {
 	client := &http.Client{}
 
 	// メッセージ本文からワードを抽出
-	words := strings.FieldsFunc(message, func(r rune) bool {
+	words := strings.FieldsFunc(decodedMessage, func(r rune) bool {
 		return r == ',' || r == '、' || r == '\n'
 	})
+	fmt.Printf("抽出されたワード: %v\n", words)
 
 	// 各ワードに対して処理
 	var registeredWords []string
@@ -56,6 +69,7 @@ func (uc *UserController) Register(c echo.Context) error {
 		if word == "" {
 			continue
 		}
+		fmt.Printf("処理前のワード: %s\n", word)
 
 		// 単語の正規化処理
 		// 1. 全角英数字を半角に変換
@@ -72,12 +86,15 @@ func (uc *UserController) Register(c echo.Context) error {
 			}
 		}, word)
 
-		// 2. 最初の文字を大文字に、それ以外を小文字に
+		// 2. 最初の文字を大文字に、それ以外を小文字に（英数字の場合のみ）
 		if len(word) > 0 {
-			word = strings.ToUpper(string(word[0])) + strings.ToLower(word[1:])
+			firstChar := word[0]
+			if (firstChar >= 'A' && firstChar <= 'Z') || (firstChar >= 'a' && firstChar <= 'z') {
+				word = strings.ToUpper(string(word[0])) + strings.ToLower(word[1:])
+			}
 		}
 
-		fmt.Printf("変換前: %s\n", word)
+		fmt.Printf("変換後: %s\n", word)
 
 		// スペースで分割
 		subWords := strings.Fields(word)
@@ -88,9 +105,14 @@ func (uc *UserController) Register(c echo.Context) error {
 		// 検索クエリを構築
 		var queryParts []string
 		for _, subWord := range subWords {
-			queryParts = append(queryParts, fmt.Sprintf("title:%s", subWord))
+			// 日本語のワードをURLエンコード
+			encodedWord := url.QueryEscape(subWord)
+			fmt.Printf("エンコード前のワード: %s\n", subWord)
+			fmt.Printf("エンコード後のワード: %s\n", encodedWord)
+			queryParts = append(queryParts, fmt.Sprintf("title:%s", encodedWord))
 		}
 		query := strings.Join(queryParts, "+")
+		fmt.Printf("Qiita検索クエリ: %s\n", query)
 
 		// QiitaのAPIで検索
 		qiitaReq, err := http.NewRequest("GET",
