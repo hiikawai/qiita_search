@@ -85,8 +85,8 @@ func (uc *UserController) Index(c echo.Context) error {
 		return c.String(http.StatusInternalServerError, "自分のアカウントIDの取得に失敗しました")
 	}
 
-	// 24時間前の時刻を計算
-	oneDayAgo := time.Now().Add(-24 * time.Hour)
+	// 5分前の時刻を計算
+	oneDayAgo := time.Now().Add(-3 * time.Minute)
 	unixTime := oneDayAgo.Unix()
 
 	// 各ユーザーのroom_idからメッセージを取得
@@ -125,7 +125,7 @@ func (uc *UserController) Index(c echo.Context) error {
 			continue
 		}
 
-		// 24時間以内のメッセージをフィルタリング
+		// 5分以内のメッセージをフィルタリング
 		for _, message := range messages {
 			sendTime, ok := message["send_time"].(float64)
 			if !ok {
