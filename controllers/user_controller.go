@@ -169,6 +169,28 @@ func (uc *UserController) Index(c echo.Context) error {
 						continue
 					}
 
+					// 単語の正規化処理
+					// 1. 全角英数字を半角に変換
+					word = strings.Map(func(r rune) rune {
+						switch {
+						case r >= 'Ａ' && r <= 'Ｚ':
+							return r - 'Ａ' + 'A'
+						case r >= 'ａ' && r <= 'ｚ':
+							return r - 'ａ' + 'a'
+						case r >= '０' && r <= '９':
+							return r - '０' + '0'
+						default:
+							return r
+						}
+					}, word)
+
+					// 2. 最初の文字を大文字に、それ以外を小文字に
+					if len(word) > 0 {
+						word = strings.ToUpper(string(word[0])) + strings.ToLower(word[1:])
+					}
+
+					fmt.Printf("変換前: %s\n", word)
+
 					// スペースで分割
 					subWords := strings.Fields(word)
 					if len(subWords) == 0 {
@@ -248,34 +270,6 @@ func (uc *UserController) Index(c echo.Context) error {
 
 					// 20件以上の場合、登録をスキップ
 					if count >= 20 {
-						continue
-					}
-
-					// 既に登録されている分野かチェック
-					checkReq, err := http.NewRequest("GET",
-						fmt.Sprintf("%s/rest/v1/field?room_id=eq.%s&field_name=eq.%s", supabaseURL, roomID, word),
-						nil)
-					if err != nil {
-						continue
-					}
-
-					checkReq.Header.Set("apikey", supabaseKey)
-					checkReq.Header.Set("Authorization", "Bearer "+supabaseKey)
-					checkReq.Header.Set("Content-Type", "application/json")
-
-					checkResp, err := client.Do(checkReq)
-					if err != nil {
-						continue
-					}
-					defer checkResp.Body.Close()
-
-					var existingFields []map[string]interface{}
-					if err := json.NewDecoder(checkResp.Body).Decode(&existingFields); err != nil {
-						continue
-					}
-
-					// 既に登録されている場合はスキップ
-					if len(existingFields) > 0 {
 						continue
 					}
 
