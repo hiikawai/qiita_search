@@ -163,15 +163,28 @@ func (uc *UserController) Index(c echo.Context) error {
 				// 各ワードに対して処理
 				var registeredWords []string
 				for _, word := range words {
-					// 空白を削除
-					word = strings.TrimSpace(word)
+					// 全角スペースを半角に変換し、複数のスペースを1つに統一
+					word = strings.Join(strings.Fields(strings.ReplaceAll(word, "　", " ")), " ")
 					if word == "" {
 						continue
 					}
 
+					// スペースで分割
+					subWords := strings.Fields(word)
+					if len(subWords) == 0 {
+						continue
+					}
+
+					// 検索クエリを構築
+					var queryParts []string
+					for _, subWord := range subWords {
+						queryParts = append(queryParts, fmt.Sprintf("title:%s", subWord))
+					}
+					query := strings.Join(queryParts, "+")
+
 					// QiitaのAPIで検索
 					qiitaReq, err := http.NewRequest("GET",
-						fmt.Sprintf("https://qiita.com/api/v2/items?query=title:%s&per_page=1", word),
+						fmt.Sprintf("https://qiita.com/api/v2/items?query=%s&per_page=1", query),
 						nil)
 					if err != nil {
 						continue
@@ -274,11 +287,15 @@ func (uc *UserController) Index(c echo.Context) error {
 					}
 					fieldJSON, err := json.Marshal(fieldData)
 					if err != nil {
+						fmt.Printf("JSONマーシャリングエラー: %v\n", err)
 						continue
 					}
 
+					fmt.Printf("Supabaseに保存するデータ: %s\n", string(fieldJSON))
+
 					fieldReq, err := http.NewRequest("POST", supabaseURL+"/rest/v1/field", bytes.NewBuffer(fieldJSON))
 					if err != nil {
+						fmt.Printf("Supabaseリクエスト作成エラー: %v\n", err)
 						continue
 					}
 
@@ -289,12 +306,22 @@ func (uc *UserController) Index(c echo.Context) error {
 
 					fieldResp, err := client.Do(fieldReq)
 					if err != nil {
+						fmt.Printf("Supabaseリクエスト送信エラー: %v\n", err)
 						continue
 					}
 					defer fieldResp.Body.Close()
 
+					fmt.Printf("Supabaseレスポンスステータス: %d\n", fieldResp.StatusCode)
+
+					if fieldResp.StatusCode != http.StatusCreated {
+						body, _ := io.ReadAll(fieldResp.Body)
+						fmt.Printf("Supabaseエラーレスポンス: %s\n", string(body))
+						continue
+					}
+
 					// 登録成功したワードを記録
 					registeredWords = append(registeredWords, word)
+					fmt.Printf("登録成功: %s\n", word)
 				}
 
 				// 登録成功したワードがある場合、まとめて通知
