@@ -55,7 +55,7 @@ func main() {
 
 	// ルーティングの設定
 	e.GET("/", articleController.Index)
-	e.GET("/register", userController.Index)
+	e.GET("/register", userController.Register)
 	e.GET("/save", articleController.SaveArticle)
 
 	// サーバーの起動
