@@ -31,6 +31,41 @@ func (uc *UserController) Register(c echo.Context) error {
 		return c.String(http.StatusBadRequest, "メッセージとルームIDは必須です")
 	}
 
+	// Supabaseの設定を取得
+	supabaseURL := os.Getenv("SUPABASE_URL")
+	supabaseKey := os.Getenv("SUPABASE_KEY")
+	if supabaseURL == "" || supabaseKey == "" {
+		return c.String(http.StatusInternalServerError, "Supabaseの設定が不足しています")
+	}
+
+	// userテーブルでroom_idの存在確認
+	client := &http.Client{}
+	userReq, err := http.NewRequest("GET",
+		fmt.Sprintf("%s/rest/v1/user?room_id=eq.%s", supabaseURL, roomID),
+		nil)
+	if err != nil {
+		return c.String(http.StatusInternalServerError, "リクエストの作成に失敗しました")
+	}
+
+	userReq.Header.Set("apikey", supabaseKey)
+	userReq.Header.Set("Authorization", "Bearer "+supabaseKey)
+	userReq.Header.Set("Content-Type", "application/json")
+
+	userResp, err := client.Do(userReq)
+	if err != nil {
+		return c.String(http.StatusInternalServerError, "APIリクエストに失敗しました")
+	}
+	defer userResp.Body.Close()
+
+	var users []map[string]interface{}
+	if err := json.NewDecoder(userResp.Body).Decode(&users); err != nil {
+		return c.String(http.StatusInternalServerError, "JSONのパースに失敗しました")
+	}
+
+	if len(users) == 0 {
+		return c.String(http.StatusBadRequest, "指定されたルームIDは登録されていません")
+	}
+
 	// メッセージをURLデコード
 	decodedMessage, err := url.QueryUnescape(message)
 	if err != nil {
@@ -39,21 +74,11 @@ func (uc *UserController) Register(c echo.Context) error {
 	}
 	fmt.Printf("デコード後のメッセージ: %s\n", decodedMessage)
 
-	// Supabaseの設定を取得
-	supabaseURL := os.Getenv("SUPABASE_URL")
-	supabaseKey := os.Getenv("SUPABASE_KEY")
-	if supabaseURL == "" || supabaseKey == "" {
-		return c.String(http.StatusInternalServerError, "Supabaseの設定が不足しています")
-	}
-
 	// ChatworkのAPIトークンを取得
 	chatworkToken := os.Getenv("CHATWORK_API_TOKEN")
 	if chatworkToken == "" {
 		return c.String(http.StatusInternalServerError, "ChatworkのAPIトークンが設定されていません")
 	}
-
-	// HTTPクライアントの作成
-	client := &http.Client{}
 
 	// メッセージ本文からワードを抽出
 	words := strings.FieldsFunc(decodedMessage, func(r rune) bool {
