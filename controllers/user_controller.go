@@ -63,6 +63,7 @@ func (uc *UserController) Register(c echo.Context) error {
 
 	// 各ワードに対して処理
 	var registeredWords []string
+	var alreadyRegisteredWords []string
 	for _, word := range words {
 		// 全角スペースを半角に変換し、複数のスペースを1つに統一
 		word = strings.Join(strings.Fields(strings.ReplaceAll(word, "　", " ")), " ")
@@ -220,6 +221,11 @@ func (uc *UserController) Register(c echo.Context) error {
 		if fieldResp.StatusCode != http.StatusCreated {
 			body, _ := io.ReadAll(fieldResp.Body)
 			fmt.Printf("Supabaseエラーレスポンス: %s\n", string(body))
+
+			// 既に登録されている場合のメッセージを送信
+			if fieldResp.StatusCode == http.StatusConflict {
+				alreadyRegisteredWords = append(alreadyRegisteredWords, word)
+			}
 			continue
 		}
 
@@ -228,9 +234,17 @@ func (uc *UserController) Register(c echo.Context) error {
 		fmt.Printf("登録成功: %s\n", word)
 	}
 
-	// 登録成功したワードがある場合、まとめて通知
+	// 登録結果をまとめて通知
+	var messages []string
 	if len(registeredWords) > 0 {
-		messageText := fmt.Sprintf("%s を登録しました", strings.Join(registeredWords, "、"))
+		messages = append(messages, fmt.Sprintf("%s を登録しました", strings.Join(registeredWords, "、")))
+	}
+	if len(alreadyRegisteredWords) > 0 {
+		messages = append(messages, fmt.Sprintf("%s は既に登録されています", strings.Join(alreadyRegisteredWords, "、")))
+	}
+
+	if len(messages) > 0 {
+		messageText := strings.Join(messages, "\n")
 		chatworkReq, err := http.NewRequest("POST",
 			fmt.Sprintf("https://api.chatwork.com/v2/rooms/%s/messages", roomID),
 			strings.NewReader(fmt.Sprintf("body=%s", messageText)))
