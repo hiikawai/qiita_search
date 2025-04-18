@@ -237,6 +237,34 @@ func (uc *UserController) Index(c echo.Context) error {
 						continue
 					}
 
+					// 既に登録されている分野かチェック
+					checkReq, err := http.NewRequest("GET",
+						fmt.Sprintf("%s/rest/v1/field?room_id=eq.%s&field_name=eq.%s", supabaseURL, roomID, word),
+						nil)
+					if err != nil {
+						continue
+					}
+
+					checkReq.Header.Set("apikey", supabaseKey)
+					checkReq.Header.Set("Authorization", "Bearer "+supabaseKey)
+					checkReq.Header.Set("Content-Type", "application/json")
+
+					checkResp, err := client.Do(checkReq)
+					if err != nil {
+						continue
+					}
+					defer checkResp.Body.Close()
+
+					var existingFields []map[string]interface{}
+					if err := json.NewDecoder(checkResp.Body).Decode(&existingFields); err != nil {
+						continue
+					}
+
+					// 既に登録されている場合はスキップ
+					if len(existingFields) > 0 {
+						continue
+					}
+
 					// Supabaseのfieldテーブルにメッセージを追加
 					fieldData := map[string]interface{}{
 						"room_id":    roomID,
@@ -263,6 +291,21 @@ func (uc *UserController) Index(c echo.Context) error {
 						continue
 					}
 					defer fieldResp.Body.Close()
+
+					// Chatworkに登録完了メッセージを送信
+					messageText := fmt.Sprintf("%s を登録しました", word)
+					chatworkReq, err := http.NewRequest("POST", fmt.Sprintf("https://api.chatwork.com/v2/rooms/%s/messages", roomID), strings.NewReader(fmt.Sprintf("body=%s", messageText)))
+					if err != nil {
+						continue
+					}
+
+					chatworkReq.Header.Set("X-ChatWorkToken", chatworkToken)
+					chatworkReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+					_, err = client.Do(chatworkReq)
+					if err != nil {
+						continue
+					}
 				}
 			}
 		}
