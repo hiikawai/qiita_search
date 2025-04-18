@@ -89,6 +89,7 @@ func (uc *UserController) Register(c echo.Context) error {
 	// 各ワードに対して処理
 	var registeredWords []string
 	var alreadyRegisteredWords []string
+	var noArticleWords []string
 	for _, word := range words {
 		// 全角スペースを半角に変換し、複数のスペースを1つに統一
 		word = strings.Join(strings.Fields(strings.ReplaceAll(word, "　", " ")), " ")
@@ -137,7 +138,7 @@ func (uc *UserController) Register(c echo.Context) error {
 			fmt.Printf("エンコード後のワード: %s\n", encodedWord)
 			queryParts = append(queryParts, fmt.Sprintf("title:%s", encodedWord))
 		}
-		query := strings.Join(queryParts, "+")
+		query := strings.Join(queryParts, "+") + "+stocks:>30"
 		fmt.Printf("Qiita検索クエリ: %s\n", query)
 
 		// QiitaのAPIで検索
@@ -173,6 +174,7 @@ func (uc *UserController) Register(c echo.Context) error {
 		}
 
 		if len(qiitaItems) == 0 {
+			noArticleWords = append(noArticleWords, word)
 			continue
 		}
 
@@ -262,10 +264,13 @@ func (uc *UserController) Register(c echo.Context) error {
 	// 登録結果をまとめて通知
 	var messages []string
 	if len(registeredWords) > 0 {
-		messages = append(messages, fmt.Sprintf("%s を登録しました", strings.Join(registeredWords, "、")))
+		messages = append(messages, fmt.Sprintf("・%s を登録しました", strings.Join(registeredWords, "、")))
 	}
 	if len(alreadyRegisteredWords) > 0 {
-		messages = append(messages, fmt.Sprintf("%s は既に登録されています", strings.Join(alreadyRegisteredWords, "、")))
+		messages = append(messages, fmt.Sprintf("・%s は既に登録されています", strings.Join(alreadyRegisteredWords, "、")))
+	}
+	if len(noArticleWords) > 0 {
+		messages = append(messages, fmt.Sprintf("・%s の人気の記事が見つからず、登録できませんでした", strings.Join(noArticleWords, "、")))
 	}
 
 	if len(messages) > 0 {
