@@ -157,7 +157,7 @@ func (uc *UserController) Index(c echo.Context) error {
 				// 分野登録機能
 				// カンマや句読点で区切られたワードを分割
 				words := strings.FieldsFunc(body, func(r rune) bool {
-					return r == ',' || r == '、'
+					return r == ',' || r == '、' || r == '\n'
 				})
 
 				// 各ワードに対して処理
