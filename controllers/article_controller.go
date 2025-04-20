@@ -301,6 +301,23 @@ func (ac *ArticleController) Index(c echo.Context) error {
 				}
 				defer deleteResp.Body.Close()
 
+				// 削除通知を送信
+				messageText := fmt.Sprintf("・%s の人気の記事が見つかりませんでした。%s を削除します", selectedField, selectedField)
+				chatworkReq, err := http.NewRequest("POST",
+					fmt.Sprintf("https://api.chatwork.com/v2/rooms/%s/messages", user.RoomID),
+					strings.NewReader(fmt.Sprintf("body=%s", messageText)))
+				if err != nil {
+					continue
+				}
+
+				chatworkReq.Header.Set("X-ChatWorkToken", chatworkToken)
+				chatworkReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+				_, err = http.DefaultClient.Do(chatworkReq)
+				if err != nil {
+					continue
+				}
+
 				hasFields = false
 
 				foundNewArticle := false
