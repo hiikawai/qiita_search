@@ -46,9 +46,6 @@ func main() {
 	e.Use(middleware.Logger())
 	e.Use(middleware.Recover())
 
-	// テンプレートレンダラーの設定
-	e.Renderer = controllers.NewTemplate()
-
 	// コントローラーのインスタンスを作成
 	articleController := controllers.NewArticleController()
 	userController := controllers.NewUserController()
