@@ -74,6 +74,11 @@ func (uc *UserController) Register(c echo.Context) error {
 	}
 	fmt.Printf("デコード後のメッセージ: %s\n", decodedMessage)
 
+	// [info]が含まれている場合は無視
+	if strings.Contains(decodedMessage, "[info]") {
+		return c.String(http.StatusOK, "OK")
+	}
+
 	// ChatworkのAPIトークンを取得
 	chatworkToken := os.Getenv("CHATWORK_API_TOKEN")
 	if chatworkToken == "" {
