@@ -491,7 +491,7 @@ func (ac *ArticleController) Index(c echo.Context) error {
 		if baseURL == "" {
 			baseURL = "http://localhost:8082" // デフォルト値
 		}
-		saveLinkMessage := fmt.Sprintf("[info]保存する場合は以下のリンクをクリック！！\n%s/save?room_id=%s&message_id=%s\nアプリのリンクはこちら！\nhttps://techapp-h845.onrender.com[/info]",
+		saveLinkMessage := fmt.Sprintf("[info]保存する場合は以下のリンクをクリック！！\n%s/save?room_id=%s&message_id=%s\nアプリはこちら！\nhttps://techapp-h845.onrender.com[/info]",
 			baseURL,
 			url.QueryEscape(user.RoomID),
 			url.QueryEscape(messageResponse.MessageID))
