@@ -54,11 +54,12 @@ func main() {
 	e.GET("/", articleController.Index)
 	e.GET("/register", userController.Register)
 	e.GET("/save", articleController.SaveArticle)
+	e.POST("/save", articleController.SaveArticle)
 
 	// サーバーの起動
 	port := os.Getenv("PORT")
 	if port == "" {
-		port = "8080"
+		port = "8082"
 	}
 	e.Logger.Fatal(e.Start(":" + port))
 }
