@@ -55,7 +55,7 @@ func main() {
 	e.GET("/register", userController.Register)
 	e.GET("/save", articleController.SaveArticle)
 	e.POST("/save", articleController.SaveArticle)
-
+	e.HEAD("/register", userController.Register)
 	// サーバーの起動
 	port := os.Getenv("PORT")
 	if port == "" {
