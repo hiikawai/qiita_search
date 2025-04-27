@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"net/http"
 	"os"
 
 	"qiita-search/controllers"
@@ -55,7 +56,10 @@ func main() {
 	e.GET("/register", userController.Register)
 	e.GET("/save", articleController.SaveArticle)
 	e.POST("/save", articleController.SaveArticle)
-	e.HEAD("/register", userController.Register)
+
+	e.HEAD("/keepalive", func(c echo.Context) error {
+		return c.NoContent(http.StatusOK)
+	})
 	// サーバーの起動
 	port := os.Getenv("PORT")
 	if port == "" {
